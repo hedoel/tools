@@ -6,8 +6,6 @@ __pycache__/
 venv/
 
 # ---- PyInstaller 构建产物 ----
-build/
-dist/
 
 # ---- 运行期数据 / 日志 ----
 *.log

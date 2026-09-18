@@ -23,12 +23,14 @@ DEFAULT_CONFIG = {
     "blur_radius": 0,
     "close_action": "tray",
     "custom_export_path": "",
+    "edge_path": "",
     "awake_enabled": False,
     "awake_mode": "indefinite",
     "awake_hours": 2,
     "autostart": False,
     "start_minimized": False,
-    "debug_mode": False
+    "debug_mode": False,
+    "show_scrollbar": False
 }
 
 
@@ -49,6 +51,7 @@ def load_config() -> dict:
     并自动完成两项一次性迁移:
     1. 旧版写在工作目录/安装目录的 config.json
     2. 旧版明文 saved_password -> DPAPI 密文 saved_password_enc
+    3. 首次启动或保存的 Edge 路径失效时，自动寻找系统 Edge 路径并持久化至配置
     """
     raw = _read_json(config_path())
     migrated = False
@@ -61,6 +64,18 @@ def load_config() -> dict:
 
     cfg = DEFAULT_CONFIG.copy()
     cfg.update(raw)
+
+    # 首次启动或保存的 Edge 路径不存在时，智能探测系统 Edge 路径并持久化
+    saved_edge = str(cfg.get("edge_path", "")).strip()
+    if not saved_edge or not os.path.exists(saved_edge):
+        try:
+            from core.edge_cdp import find_edge_binary
+            detected = find_edge_binary()
+            if detected and os.path.exists(detected):
+                cfg["edge_path"] = detected
+                migrated = True
+        except Exception:
+            pass
 
     # 旧版「开机自启」隐含静默进托盘，拆分为独立开关后保留原有行为
     if "start_minimized" not in raw:

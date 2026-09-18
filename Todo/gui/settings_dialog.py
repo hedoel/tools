@@ -11,6 +11,7 @@ from PyQt5.QtGui import QFont, QIcon
 from core.awake_mgr import AwakeManager
 from utils.autostart_mgr import is_autostart_enabled, set_autostart
 from utils.paths import resource_path
+from gui.styled_dialog import StyledMessageBox
 
 
 class SettingsDialog(QDialog):
@@ -26,6 +27,8 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self.config = current_config.copy()
         self.original_config = current_config.copy()
+        self._edge_click_count = 0
+        self._edge_widgets = []  # 隐藏的 Edge 路径相关控件
         
         self.init_ui()
         self.load_values()
@@ -52,9 +55,11 @@ class SettingsDialog(QDialog):
 
         # 标题栏简述
         title_box = QHBoxLayout()
-        lbl_title = QLabel("⚙️ 首选项设置 / Preferences")
-        lbl_title.setFont(QFont("JetBrains Mono", 14, QFont.Bold))
-        title_box.addWidget(lbl_title)
+        self.lbl_title = QLabel("⚙️ 首选项设置 / Preferences")
+        self.lbl_title.setFont(QFont("JetBrains Mono", 14, QFont.Bold))
+        self.lbl_title.setCursor(Qt.PointingHandCursor)
+        self.lbl_title.mousePressEvent = self._on_title_clicked
+        title_box.addWidget(self.lbl_title)
         title_box.addStretch()
         main_layout.addLayout(title_box)
 
@@ -122,8 +127,8 @@ class SettingsDialog(QDialog):
     def _create_tab_appearance(self) -> QWidget:
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(14)
+        layout.setContentsMargins(16, 10, 16, 10)
+        layout.setSpacing(8)
 
         # 1. 主题风格
         lbl_theme = QLabel("界面主题风格 (Theme):")
@@ -213,6 +218,17 @@ class SettingsDialog(QDialog):
         self.slider_blur.setValue(0)
         self.slider_blur.valueChanged.connect(self._on_blur_slider)
         layout.addWidget(self.slider_blur)
+
+        # 6. 表格滚动条 (Scrollbar)
+        self.chk_show_scrollbar = QCheckBox("显示表格与列表垂直滑条 (Show Scrollbar)")
+        self.chk_show_scrollbar.setFont(QFont("JetBrains Mono", 10, QFont.Bold))
+        self.chk_show_scrollbar.toggled.connect(self._on_scrollbar_toggled)
+        layout.addWidget(self.chk_show_scrollbar)
+
+        lbl_scroll_tip = QLabel("💡 默认隐藏以呈现极简纯净界面；隐藏后仍可通过鼠标滚轮或触控板手势自然平滑滚动。")
+        lbl_scroll_tip.setStyleSheet("color: #64748B; font-size: 11px;")
+        lbl_scroll_tip.setWordWrap(True)
+        layout.addWidget(lbl_scroll_tip)
 
         layout.addStretch()
         return widget
@@ -374,7 +390,45 @@ class SettingsDialog(QDialog):
         lbl_path_tip.setWordWrap(True)
         layout.addWidget(lbl_path_tip)
 
-        # 4. 调试模式 (演示数据等仅供排查问题使用的入口)
+        # 分割微线 (Edge 区域)
+        line3 = QFrame()
+        line3.setFrameShape(QFrame.HLine)
+        line3.setFrameShadow(QFrame.Sunken)
+        layout.addWidget(line3)
+
+        # 4. Microsoft Edge 浏览器执行路径 (隐藏，需连续点击标题 10 次才显示)
+        lbl_edge = QLabel("Microsoft Edge 浏览器路径 (Edge Executable):")
+        lbl_edge.setFont(QFont("JetBrains Mono", 10, QFont.Bold))
+        layout.addWidget(lbl_edge)
+
+        edge_input_widget = QWidget()
+        edge_input_layout = QHBoxLayout(edge_input_widget)
+        edge_input_layout.setContentsMargins(0, 0, 0, 0)
+        self.edit_edge_path = QLineEdit()
+        self.edit_edge_path.setPlaceholderText("程序首次启动已自动检索；支持手动指定 msedge.exe")
+        btn_browse_edge = QPushButton("浏览...")
+        btn_browse_edge.setCursor(Qt.PointingHandCursor)
+        btn_browse_edge.clicked.connect(self._browse_edge_path)
+        btn_detect_edge = QPushButton("重新探测")
+        btn_detect_edge.setCursor(Qt.PointingHandCursor)
+        btn_detect_edge.clicked.connect(self._auto_detect_edge)
+
+        edge_input_layout.addWidget(self.edit_edge_path, 1)
+        edge_input_layout.addWidget(btn_browse_edge)
+        edge_input_layout.addWidget(btn_detect_edge)
+        layout.addWidget(edge_input_widget)
+
+        lbl_edge_tip = QLabel("💡 提示：首次启动已自动写入配置；若使用绿色便携版或自定义路径，可在此直接浏览选择。")
+        lbl_edge_tip.setStyleSheet("color: #64748B; font-size: 11px;")
+        lbl_edge_tip.setWordWrap(True)
+        layout.addWidget(lbl_edge_tip)
+
+        # 默认隐藏 Edge 路径相关控件
+        self._edge_widgets = [line3, lbl_edge, edge_input_widget, lbl_edge_tip]
+        for w in self._edge_widgets:
+            w.setVisible(False)
+
+        # 5. 调试模式 (演示数据等仅供排查问题使用的入口)
         lbl_debug = QLabel("调试与诊断 (Debug):")
         lbl_debug.setFont(QFont("JetBrains Mono", 10, QFont.Bold))
         layout.addWidget(lbl_debug)
@@ -577,6 +631,8 @@ class SettingsDialog(QDialog):
         self.slider_blur.setValue(blur)
         self.lbl_blur_val.setText(f"{blur} px")
 
+        self.chk_show_scrollbar.setChecked(bool(self.config.get("show_scrollbar", False)))
+
         # 2. 屏幕常亮栏目
         awake_en = bool(self.config.get("awake_enabled", False))
         self.chk_awake.setChecked(awake_en)
@@ -602,6 +658,7 @@ class SettingsDialog(QDialog):
             self.radio_close_tray.setChecked(True)
 
         self.edit_custom_path.setText(self.config.get("custom_export_path", ""))
+        self.edit_edge_path.setText(self.config.get("edge_path", ""))
         self.chk_debug.setChecked(bool(self.config.get("debug_mode", False)))
 
     def _on_theme_changed(self):
@@ -622,6 +679,35 @@ class SettingsDialog(QDialog):
         d = QFileDialog.getExistingDirectory(self, "选择默认工作/导出路径", self.edit_custom_path.text().strip())
         if d:
             self.edit_custom_path.setText(d)
+
+    def _browse_edge_path(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "选择 Microsoft Edge 执行程序", self.edit_edge_path.text().strip(), "可执行文件 (msedge.exe *.exe);;所有文件 (*.*)"
+        )
+        if path:
+            self.edit_edge_path.setText(path)
+
+    def _auto_detect_edge(self):
+        try:
+            from core.edge_cdp import find_edge_binary
+            detected = find_edge_binary()
+            if detected and os.path.exists(detected):
+                self.edit_edge_path.setText(detected)
+                StyledMessageBox(
+                    self,
+                    title="探测成功",
+                    headline="成功检测到 Edge 浏览器安装路径",
+                    message=f"已自动定位: \n{detected}",
+                    icon_type="success"
+                ).exec_()
+        except Exception as e:
+            StyledMessageBox(
+                self,
+                title="探测失败",
+                headline="未在系统中自动检测到 Edge",
+                message=str(e),
+                icon_type="warning"
+            ).exec_()
 
     def _on_opacity_slider(self, val: int):
         self.lbl_opacity_val.setText(f"{val}%")
@@ -646,8 +732,14 @@ class SettingsDialog(QDialog):
             "start_minimized": self.chk_start_minimized.isChecked(),
             "close_action": "exit" if self.radio_close_exit.isChecked() else "tray",
             "custom_export_path": self.edit_custom_path.text().strip(),
-            "debug_mode": self.chk_debug.isChecked()
+            "edge_path": self.edit_edge_path.text().strip(),
+            "debug_mode": self.chk_debug.isChecked(),
+            "show_scrollbar": self.chk_show_scrollbar.isChecked()
         }
+
+    def _on_scrollbar_toggled(self, checked: bool):
+        cur = self.get_current_settings()
+        self.settings_changed.emit(cur)
 
     def _on_apply(self):
         cur = self.get_current_settings()
@@ -663,3 +755,26 @@ class SettingsDialog(QDialog):
     def _on_cancel(self):
         self.settings_changed.emit(self.original_config)
         self.reject()
+
+    # --------------------------------------------------------
+    # 隐藏开发者入口：连续点击标题 10 次显示 Edge 路径配置
+    # --------------------------------------------------------
+    def _on_title_clicked(self, event):
+        self._edge_click_count += 1
+        remaining = 10 - self._edge_click_count
+        if remaining > 0 and remaining <= 3:
+            # 最后 3 次给出倒计提示
+            self.lbl_title.setToolTip(f"再点击 {remaining} 次即可进入开发者设置")
+        if self._edge_click_count >= 10:
+            for w in self._edge_widgets:
+                w.setVisible(True)
+            self._edge_click_count = 0
+            self.lbl_title.setToolTip("")
+
+    def closeEvent(self, event):
+        """关闭设置对话框时重置隐藏状态"""
+        self._edge_click_count = 0
+        for w in self._edge_widgets:
+            w.setVisible(False)
+        self.lbl_title.setToolTip("")
+        super().closeEvent(event)

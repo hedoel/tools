@@ -19,10 +19,10 @@ class DayCellWidget(QFrame):
         self.init_ui()
 
     def init_ui(self):
-        self.setMinimumHeight(105)
+        self.setMinimumHeight(95)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 6, 8, 6)
-        layout.setSpacing(3)
+        layout.setContentsMargins(5, 5, 5, 5)
+        layout.setSpacing(2)
 
         if not self.is_cur_month or not self.day_data:
             # 非当月占位格
@@ -37,7 +37,7 @@ class DayCellWidget(QFrame):
             """)
             if self.day_num > 0:
                 lbl = QLabel(str(self.day_num))
-                lbl.setFont(QFont("JetBrains Mono", 10))
+                lbl.setFont(QFont("JetBrains Mono", 9))
                 lbl.setStyleSheet("color: #475569;" if self.is_dark else "color: #CBD5E1;")
                 layout.addWidget(lbl)
             layout.addStretch()
@@ -80,19 +80,19 @@ class DayCellWidget(QFrame):
         self.setStyleSheet(f"""
             QFrame {{
                 {bg_style}
-                border-radius: 8px;
+                border-radius: 6px;
             }}
             QFrame:hover {{
                 border: 1.5px solid #2563EB;
             }}
         """)
 
-        # 1. 顶部：日期号 + 节假日/周末标签
+        # 1. 顶部：日期号 + 节假日/周末标签 + 班次
         top_box = QHBoxLayout()
-        top_box.setSpacing(4)
+        top_box.setSpacing(3)
         
         lbl_day = QLabel(f"{self.day_num:02d}")
-        lbl_day.setFont(QFont("JetBrains Mono", 12, QFont.Bold))
+        lbl_day.setFont(QFont("JetBrains Mono", 11, QFont.Bold))
         if self.is_dark:
             day_color = "color: #F8FAFC;" if not is_weekend else "color: #94A3B8;"
         else:
@@ -102,32 +102,51 @@ class DayCellWidget(QFrame):
 
         if is_holiday:
             tag_hol = QLabel("节")
-            tag_hol.setStyleSheet("background-color: #EF4444; color: #FFFFFF; border-radius: 3px; font-size: 10px; font-weight: bold; padding: 1px 4px;")
+            tag_hol.setStyleSheet("background-color: #EF4444; color: #FFFFFF; border-radius: 3px; font-size: 9px; font-weight: bold; padding: 1px 3px;")
             top_box.addWidget(tag_hol)
         elif is_weekend:
             tag_wk = QLabel("休" if detail_type == "公休" else "末")
             tag_wk_style = "background-color: #334155; color: #CBD5E1;" if self.is_dark else "background-color: #E2E8F0; color: #475569;"
-            tag_wk.setStyleSheet(f"{tag_wk_style} border-radius: 3px; font-size: 10px; padding: 1px 3px;")
+            tag_wk.setStyleSheet(f"{tag_wk_style} border-radius: 3px; font-size: 9px; padding: 1px 2px;")
             top_box.addWidget(tag_wk)
 
         top_box.addStretch()
 
-        # 班次名称精简
+        # 班次名称精简：剔除冗余前缀并截取前 4 字符
         short_shift = shift.split("(")[0].strip() if shift else ""
-        if len(short_shift) > 8:
-            short_shift = short_shift[:8]
+        for prefix in ["SD3-", "SD1-", "SD2-", "职员"]:
+            short_shift = short_shift.replace(prefix, "")
+        short_shift = short_shift.strip()
+        if len(short_shift) > 4:
+            short_shift = short_shift[:4]
         lbl_shift = QLabel(short_shift)
-        lbl_shift.setFont(QFont("JetBrains Mono", 9))
+        lbl_shift.setFont(QFont("JetBrains Mono", 8))
         lbl_shift.setStyleSheet("color: #64748B;" if not self.is_dark else "color: #94A3B8;")
         top_box.addWidget(lbl_shift)
         
         layout.addLayout(top_box)
 
-        # 2. 中间：上下班打卡时间
-        time_text = f"{cin} ~ {cout}" if (cin != "-" or cout != "-") else "未打卡 / 无记录"
+        # 2. 中间：上下班打卡时间 (日历中精简剔除重复的月日，仅保留时分)
+        def _clean_time(t: str) -> str:
+            if not t or t == "-":
+                return "-"
+            parts = t.strip().split()
+            return parts[-1] if parts else t
+
+        cin_clean = _clean_time(cin)
+        cout_clean = _clean_time(cout)
+        if cin_clean != "-" and cout_clean != "-":
+            time_text = f"{cin_clean}~{cout_clean}"
+        elif cin_clean != "-":
+            time_text = f"{cin_clean}~缺卡"
+        elif cout_clean != "-":
+            time_text = f"缺卡~{cout_clean}"
+        else:
+            time_text = "未打卡"
+
         lbl_time = QLabel(time_text)
-        lbl_time.setFont(QFont("JetBrains Mono", 9))
-        if cin != "-" or cout != "-":
+        lbl_time.setFont(QFont("JetBrains Mono", 8))
+        if cin_clean != "-" or cout_clean != "-":
             lbl_time.setStyleSheet("color: #F8FAFC; font-weight: bold;" if self.is_dark else "color: #0F172A; font-weight: bold;")
         else:
             lbl_time.setStyleSheet("color: #64748B;" if self.is_dark else "color: #94A3B8;")
@@ -137,18 +156,18 @@ class DayCellWidget(QFrame):
         ot_box = QHBoxLayout()
         if ot > 0:
             if is_holiday:
-                lbl_ot = QLabel(f"⏱ {ot:.1f}h (不计)")
-                lbl_ot.setStyleSheet("background-color: #FEE2E2; color: #B91C1C; font-size: 10px; font-weight: bold; padding: 2px 6px; border-radius: 4px;")
+                lbl_ot = QLabel(f"+{ot:.1f}h(节)")
+                lbl_ot.setStyleSheet("background-color: #FEE2E2; color: #B91C1C; font-size: 9px; font-weight: bold; padding: 1px 4px; border-radius: 3px;")
             elif detail_type == "周末加班":
-                lbl_ot = QLabel(f"⏱ +{ot:.1f}h 周末")
-                lbl_ot.setStyleSheet("background-color: #FEF3C7; color: #B45309; font-size: 10px; font-weight: bold; padding: 2px 6px; border-radius: 4px;")
+                lbl_ot = QLabel(f"+{ot:.1f}h 周末")
+                lbl_ot.setStyleSheet("background-color: #FEF3C7; color: #B45309; font-size: 9px; font-weight: bold; padding: 1px 4px; border-radius: 3px;")
             else:
-                lbl_ot = QLabel(f"⏱ +{ot:.1f}h 加班")
-                lbl_ot.setStyleSheet("background-color: #DCFCE7; color: #15803D; font-size: 10px; font-weight: bold; padding: 2px 6px; border-radius: 4px;")
+                lbl_ot = QLabel(f"+{ot:.1f}h 加班")
+                lbl_ot.setStyleSheet("background-color: #DCFCE7; color: #15803D; font-size: 9px; font-weight: bold; padding: 1px 4px; border-radius: 3px;")
             ot_box.addWidget(lbl_ot)
         else:
-            lbl_status = QLabel("正常工时" if detail_type != "公休" else "公休放假")
-            lbl_status.setStyleSheet("color: #64748B; font-size: 10px;" if self.is_dark else "color: #94A3B8; font-size: 10px;")
+            lbl_status = QLabel("正常" if detail_type != "公休" else "公休")
+            lbl_status.setStyleSheet("color: #64748B; font-size: 9px;" if self.is_dark else "color: #94A3B8; font-size: 9px;")
             ot_box.addWidget(lbl_status)
             
         ot_box.addStretch()
@@ -180,16 +199,18 @@ class AttendanceCalendarWidget(QWidget):
             lbl.setAlignment(Qt.AlignCenter)
             lbl.setFont(QFont("JetBrains Mono", 10, QFont.Bold))
             if idx in [5, 6]:
-                lbl.setStyleSheet("background-color: #334155; color: #E2E8F0; padding: 6px; border-radius: 4px;")
+                lbl.setStyleSheet("background-color: #334155; color: #E2E8F0; padding: 8px 4px; border-radius: 4px; font-size: 12px;")
             else:
-                lbl.setStyleSheet("background-color: #1E293B; color: #FFFFFF; padding: 6px; border-radius: 4px;")
+                lbl.setStyleSheet("background-color: #1E293B; color: #FFFFFF; padding: 8px 4px; border-radius: 4px; font-size: 12px;")
             h_layout.addWidget(lbl, 1)
             
         main_layout.addWidget(self.header_widget)
 
-        # 滚动区域包装日历网格
+        # 滚动区域包装日历网格 (严格关闭水平滚动条，宽度随窗口自适应响应)
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.scroll.setStyleSheet("""
             QScrollArea {
                 border: 1px solid #E2E8F0;
@@ -200,8 +221,8 @@ class AttendanceCalendarWidget(QWidget):
         
         self.grid_container = QWidget()
         self.grid_layout = QGridLayout(self.grid_container)
-        self.grid_layout.setContentsMargins(6, 6, 6, 6)
-        self.grid_layout.setSpacing(6)
+        self.grid_layout.setContentsMargins(4, 4, 4, 4)
+        self.grid_layout.setSpacing(4)
         
         self.scroll.setWidget(self.grid_container)
         main_layout.addWidget(self.scroll, 1)

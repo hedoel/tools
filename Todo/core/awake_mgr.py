@@ -35,7 +35,14 @@ class AwakeManager(QObject):
         self.timer.timeout.connect(self._on_tick)
 
     def enable(self, mode: str = "indefinite", hours: int = 2):
-        """启用防息屏模式"""
+        """启用防息屏模式 (C2: 已激活且配置相同时保持倒计时，不随意重置)"""
+        if self.is_active and self.mode == mode:
+            if mode == "indefinite":
+                return
+            elif mode == "timed" and self.target_hours == hours and self.end_time and self.end_time > datetime.now():
+                # 仍处于原有倒计时有效时间内，无需重新从头计时
+                return
+
         self.mode = mode
         self.target_hours = hours
         if mode == "timed":

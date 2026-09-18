@@ -52,6 +52,8 @@ class AttendanceScraper:
         
     def login(self, emp_id: str, password: str) -> bool:
         """登录 EVE Portal，支持自动复用已登录会话"""
+        emp_id = str(emp_id).strip()
+        password = str(password).replace(" ", "")
         self._log("正在检查当前登录状态...", 5)
         
         # 优先检查是否已有标签页处于登录状态或考勤页
@@ -218,7 +220,7 @@ class AttendanceScraper:
 
 
     def set_date_range(self, start_date_str: str, end_date_str: str):
-        """设置考勤概览的日期范围 (如: 2026-05-01 至 2026-05-31)，避免弹窗遮挡拦截"""
+        """设置考勤概览的日期范围 (如: 2026-05-01 至 2026-05-31)，并严格回读核验，防止静默抓错月份 (A2)"""
         self._log(f"设置查询日期区间: {start_date_str} 至 {end_date_str}...", 55)
         
         # 使用直接派发事件的高可靠脚本，杜绝 ElementClickInterceptedException 报错
@@ -248,14 +250,42 @@ class AttendanceScraper:
         document.body.click();
         return 'success';
         """
-        try:
-            res = self.driver.execute_script(set_date_js, start_date_str, end_date_str)
-            time.sleep(2)
-            # 二次保障关闭浮层
-            self.driver.execute_script("document.body.click();")
-            time.sleep(1)
-        except Exception as e:
-            self._log(f"设置日期范围提示: {e}", 58)
+        
+        verify_js = """
+        const picker = document.querySelector('.right-datepicker');
+        if (!picker) return {ok: false, reason: 'no_picker'};
+        const inputs = picker.querySelectorAll('input.el-range-input');
+        if (inputs.length < 2) return {ok: false, reason: 'no_inputs'};
+        return {ok: true, start: inputs[0].value.trim(), end: inputs[1].value.trim()};
+        """
+
+        success = False
+        last_err = ""
+        for attempt in range(1, 4):
+            try:
+                res = self.driver.execute_script(set_date_js, start_date_str, end_date_str)
+                time.sleep(1.5)
+                self.driver.execute_script("document.body.click();")
+                time.sleep(0.5)
+
+                check = self.driver.execute_script(verify_js)
+                if check and check.get("ok"):
+                    s_act = check.get("start", "")
+                    e_act = check.get("end", "")
+                    if s_act == start_date_str and e_act == end_date_str:
+                        success = True
+                        break
+                    else:
+                        last_err = f"页面当前为 [{s_act} 至 {e_act}]，与目标区间不符"
+                else:
+                    last_err = f"无法定位日期选择器输入框: {check.get('reason') if check else res}"
+            except Exception as ex:
+                last_err = str(ex)
+            time.sleep(1.0)
+
+        if not success:
+            raise RuntimeError(f"设置查询月份区间失败 ({last_err})。为防止抓取错误月份，已中断执行！")
+        self._log(f"已核实确认当前查询区间: {start_date_str} 至 {end_date_str}", 58)
             
     def scrape_month_records(
         self,
@@ -295,6 +325,7 @@ class AttendanceScraper:
         self._log(f"开始抓取【{emp_name}】{year}年{month}月份每日出勤打卡...", 60)
         
         records = []
+        failed_days = []
         
         # 初步先关掉可能遗留的抽屉
         try:
@@ -355,7 +386,10 @@ class AttendanceScraper:
                 elif is_weekend and cell_info.get("hasContent"):
                     # 周末即使没有常规打卡，也可能有加班申请单信息
                     need_drawer = True
+
+            drawer_success = True
             if need_drawer:
+                drawer_success = False
                 try:
                     # 滚动并点击日期单元格
                     self.driver.execute_script(f"""
@@ -464,13 +498,19 @@ class AttendanceScraper:
                             ot_valid_hours = res.get('otValidHours')
                             ot_check_in = res.get('otIn')
                             ot_check_out = res.get('otOut')
+                            drawer_success = True
                             break
                         time.sleep(0.1)
                         
+                    if not drawer_success:
+                        failed_days.append(target_date_str)
+                        self._log(f"⚠️ {target_date_str} 详情抽屉加载超时，打卡可能未完全同步", pct)
+
                     # 采集完当前日期后立即关闭抽屉，保持界面干净且不遮挡后续单元格
                     self.driver.execute_script("const c = document.querySelector('.er-dialog-close'); if (c) c.click();")
                     time.sleep(0.1)
                 except Exception as ex:
+                    failed_days.append(target_date_str)
                     print(f"读取 {target_date_str} 详情异常: {ex}")
                     try:
                         self.driver.execute_script("const c = document.querySelector('.er-dialog-close'); if (c) c.click();")
@@ -495,8 +535,14 @@ class AttendanceScraper:
                 granularity_minutes=calc_rules.get("granularity_minutes", 30),
                 ot_valid_hours=ot_valid_hours,
                 is_statutory_holiday=is_statutory_holiday,
-                ot_latest_end=calc_rules.get("ot_latest_end", "02:00")
+                ot_latest_end=calc_rules.get("ot_latest_end", "02:00"),
+                include_weekend_base=calc_rules.get("include_weekend_base", True)
             )
+            if target_date_str in failed_days:
+                orig_note = item_result.get("notes", "")
+                prefix = "⚠️【抽屉读取超时，打卡数据可能有遗漏】"
+                item_result["notes"] = f"{prefix} {orig_note}" if orig_note else prefix
+
             records.append(item_result)
             
         # 采集完成后关闭抽屉
@@ -508,6 +554,9 @@ class AttendanceScraper:
         except Exception:
             pass
             
-        self._log("当月所有日期打卡数据采集并核算完成！", 98)
-        return emp_name, records
+        if failed_days:
+            self._log(f"采集完成！其中 {len(failed_days)} 天存在读取超时异常", 98)
+        else:
+            self._log("当月所有日期打卡数据采集并核算完成！", 98)
+        return emp_name, records, failed_days
 

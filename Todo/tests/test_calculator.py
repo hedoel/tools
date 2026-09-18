@@ -123,6 +123,10 @@ class TestWeekendAndHoliday:
         # 基础工时 8.0 + 18:00 后 2.0
         assert ot(SATURDAY, "08:20", "20:00") == 10.0
 
+    def test_weekend_base_disabled(self):
+        # 关闭未见审批单的周末打卡兜底，无加班单时记为 0.0h
+        assert ot(SATURDAY, "08:20", "20:00", include_weekend_base=False) == 0.0
+
     def test_weekend_cross_day_capped(self):
         # 基础工时 8.0 + 18:00~次日 02:00 的 8.0，凌晨 03:00 部分被截断
         assert ot(SATURDAY, "08:20", "03:00") == 16.0
@@ -157,4 +161,38 @@ class TestAllowance:
         assert calculate_overtime_allowance(20)[0] == 0
         assert calculate_overtime_allowance(20.5)[0] == 200
         assert calculate_overtime_allowance(36)[0] == 300
+        assert calculate_overtime_allowance(85)[0] == 1300
+        assert calculate_overtime_allowance(85.5)[0] == 1400
+        assert calculate_overtime_allowance(90)[0] == 1400
+        assert calculate_overtime_allowance(90.1)[0] == 1500
         assert calculate_overtime_allowance(120)[0] == 1500
+
+
+if __name__ == "__main__":
+    import inspect
+
+    test_classes = [
+        TestWeekdayOvertime,
+        TestCrossDayOvertime,
+        TestStandardWorkHours,
+        TestWeekendAndHoliday,
+        TestTimeParsing,
+        TestRobustness,
+        TestAllowance,
+    ]
+    passed = 0
+    failed = 0
+    for cls in test_classes:
+        instance = cls()
+        for name, method in inspect.getmembers(cls, predicate=inspect.isfunction):
+            if name.startswith("test_"):
+                try:
+                    method(instance)
+                    passed += 1
+                except Exception as e:
+                    print(f"FAILED: {cls.__name__}.{name}: {e}")
+                    failed += 1
+    print(f"Tests finished: {passed} passed, {failed} failed.")
+    if failed:
+        sys.exit(1)
+

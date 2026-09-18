@@ -163,7 +163,8 @@ def calculate_daily_overtime(
     granularity_minutes: int = 30,
     ot_valid_hours: Optional[float] = None,
     is_statutory_holiday: bool = False,
-    ot_latest_end: str = DEFAULT_OT_LATEST_END
+    ot_latest_end: str = DEFAULT_OT_LATEST_END,
+    include_weekend_base: bool = True
 ) -> Dict[str, Any]:
     """
     计算单日加班时长
@@ -180,7 +181,7 @@ def calculate_daily_overtime(
     2. 周末且存在审批加班单: 以审批的“有效加班时长”为准
     3. 公休班次且无有效加班单: 不计入加班时长 (0 小时)
     4. 周一至周五: 按上述口径计算 18:00 之后的延时加班
-    5. 周末非公休: 标准班次内有效工时 + 18:00 后延时加班
+    5. 周末非公休: 标准班次内有效工时 + 18:00 后延时加班 (注明打卡兜底)
     """
     weekday = record_date.weekday()  # 0: Monday ... 4: Friday, 5: Saturday, 6: Sunday
     is_weekend = (weekday in [5, 6])
@@ -201,6 +202,7 @@ def calculate_daily_overtime(
         "check_out": check_out_str or "-",
         "is_public_holiday": is_statutory_holiday,
         "overtime_hours": 0.0,
+        "declared_ot_hours": float(ot_valid_hours or 0.0),
         "detail_type": "正常工时",
         "notes": ""
     }
@@ -265,17 +267,22 @@ def calculate_daily_overtime(
             
     # 规则 5: 周末加班 (周六/周日且非公休)
     else:
-        # 标准班次内有效出勤工时 (已排除 12:00-13:00 午休)
-        base_weekend_hours = standard_work_hours(
-            record_date, check_in_dt, check_out_dt,
-            _parse_hhmm(weekday_standard_end, WORK_AFTERNOON_END)
-        )
-        result["overtime_hours"] = round(base_weekend_hours + ot_hours, 2)
-        result["detail_type"] = "周末加班"
-        result["notes"] = (
-            f"周末出勤基础工时 {base_weekend_hours}h + {weekday_ot_start}后加班 {ot_hours}h"
-            f"{cross_day_note}{cutoff_note}"
-        )
+        if include_weekend_base:
+            # 标准班次内有效出勤工时 (已排除 12:00-13:00 午休)
+            base_weekend_hours = standard_work_hours(
+                record_date, check_in_dt, check_out_dt,
+                _parse_hhmm(weekday_standard_end, WORK_AFTERNOON_END)
+            )
+            result["overtime_hours"] = round(base_weekend_hours + ot_hours, 2)
+            result["detail_type"] = "周末加班"
+            result["notes"] = (
+                f"周末出勤基础工时 {base_weekend_hours}h + {weekday_ot_start}后加班 {ot_hours}h"
+                f"{cross_day_note}{cutoff_note}（注：未见HR审批单，按打卡出勤兜底）"
+            )
+        else:
+            result["overtime_hours"] = 0.0
+            result["detail_type"] = "公休" if is_public_holiday_shift else "正常工时"
+            result["notes"] = "周末无有效加班审批单，不计入加班"
         
     return result
 
@@ -298,7 +305,7 @@ def calculate_overtime_allowance(total_hours: float) -> tuple:
     - 等级 12: 75 < H ≤ 80 小时   -> ¥ 1200
     - 等级 13: 80 < H ≤ 85 小时   -> ¥ 1300
     - 等级 14: 85 < H ≤ 90 小时   -> ¥ 1400
-    - 等级 15: H ≥ 90 小时        -> ¥ 1500
+    - 等级 15: H > 90 小时        -> ¥ 1500
 
     返回: (津贴金额: int, 等级名称: str, 区间描述: str)
     """
@@ -332,4 +339,4 @@ def calculate_overtime_allowance(total_hours: float) -> tuple:
     elif h <= 90:
         return 1400, "等级 14", "85 < H ≤ 90h"
     else:
-        return 1500, "等级 15", "H ≥ 90h"
+        return 1500, "等级 15", "H > 90h"
