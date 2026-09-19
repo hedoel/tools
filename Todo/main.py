@@ -33,6 +33,10 @@ def main():
     if guard.is_another_instance_running():
         logger.info("检测到已存在正在运行的 NoOvertime 实例，已请求唤醒该实例并退出当前进程。")
         sys.exit(0)
+
+    # 创建 Windows 命名互斥体，供安装与卸载程序检测是否在运行
+    import ctypes
+    _app_win32_mutex = ctypes.windll.kernel32.CreateMutexW(None, False, "NoOvertime_Application_Mutex")
     
     # 全局设置猫咪图标 (按程序自身位置解析，开机自启时同样有效)
     for name in ["猫咪.png", "icon.ico"]:

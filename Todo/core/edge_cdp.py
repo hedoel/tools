@@ -11,6 +11,9 @@ from typing import Tuple, Optional
 from selenium import webdriver
 from selenium.webdriver.edge.service import Service
 from selenium.webdriver.edge.options import Options
+import selenium.webdriver.edge.webdriver
+import selenium.webdriver.chromium.webdriver
+import selenium.webdriver.remote.webdriver
 
 
 def find_edge_binary(custom_path: Optional[str] = None) -> str:

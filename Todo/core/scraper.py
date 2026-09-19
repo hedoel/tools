@@ -356,13 +356,10 @@ class AttendanceScraper:
                 const clockItems = clockEl ? clockEl.querySelectorAll('.date-cell-clock-item') : [];
                 // 检测单元格内是否有加班申请相关的标识（图标/文字）
                 const cellText = c.innerText || '';
-                const hasOtBadge = cellText.includes('加班') || !!c.querySelector('.date-cell-overtime, .overtime-icon, [class*="overtime"]');
-                // 检查单元格内是否有任何可点击内容(非空白单元格)
-                const hasContent = clockItems.length > 0 || hasOtBadge || (cellText.trim().length > 0 && shift.length > 0);
+                const hasOtBadge = cellText.includes('加班') || !!c.querySelector('.date-cell-overtime, .overtime-icon, [class*="overtime"], [class*="apply"], [class*="ot"]');
                 return {{
                     hasClock: clockItems.length > 0,
                     hasOtBadge: hasOtBadge,
-                    hasContent: hasContent,
                     cellShift: shift,
                     isStatutoryHoliday: isHoliday
                 }};
@@ -376,27 +373,23 @@ class AttendanceScraper:
             ot_check_in = None
             ot_check_out = None
             
-            # 2. 打开抽屉条件：有打卡记录、有加班标识、或者是周末有排班内容的日期
+            # 2. 打开抽屉条件：仅当在当天或过去日期，且单元格内有实际打卡记录或加班申请标识时，才打开详情抽屉
+            # 未来日期或无打卡、无加班单的正常公休周末直接按排班核算，无需打开抽屉，避免无效超时与弹窗误报
             need_drawer = False
-            if cell_info:
-                if cell_info.get("hasClock"):
-                    need_drawer = True
-                elif cell_info.get("hasOtBadge"):
-                    need_drawer = True
-                elif is_weekend and cell_info.get("hasContent"):
-                    # 周末即使没有常规打卡，也可能有加班申请单信息
+            if cell_info and cur_date <= date.today():
+                if cell_info.get("hasClock") or cell_info.get("hasOtBadge"):
                     need_drawer = True
 
             drawer_success = True
             if need_drawer:
                 drawer_success = False
                 try:
-                    # 滚动并点击日期单元格
+                    # 滚动并点击日期单元格中的打卡项或加班标识
                     self.driver.execute_script(f"""
                         const c = document.querySelector("div[customattribute*='\\"prop\\":\\"{target_date_str}\\"']");
                         if (c) {{
                             c.scrollIntoView({{block: 'center', inline: 'center'}});
-                            const target = c.querySelector('.date-cell-clock-item, .date-cell') || c;
+                            const target = c.querySelector('.date-cell-clock-item, .date-cell-overtime, .overtime-icon, [class*="overtime"]') || c.querySelector('.date-cell-clock-item') || c;
                             target.click();
                         }}
                     """)
@@ -506,9 +499,12 @@ class AttendanceScraper:
                         failed_days.append(target_date_str)
                         self._log(f"⚠️ {target_date_str} 详情抽屉加载超时，打卡可能未完全同步", pct)
 
+                    # 点击日历格读取数据后，停留两秒再关闭抽屉并进入下一天
+                    time.sleep(2.0)
+
                     # 采集完当前日期后立即关闭抽屉，保持界面干净且不遮挡后续单元格
                     self.driver.execute_script("const c = document.querySelector('.er-dialog-close'); if (c) c.click();")
-                    time.sleep(0.1)
+                    time.sleep(0.3)
                 except Exception as ex:
                     failed_days.append(target_date_str)
                     print(f"读取 {target_date_str} 详情异常: {ex}")

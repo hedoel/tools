@@ -1,5 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+from PyInstaller.utils.hooks import collect_submodules, collect_data_files
+
+selenium_submodules = collect_submodules('selenium')
+selenium_datas = collect_data_files('selenium')
+
 a = Analysis(
     ['main.py'],
     pathex=[],
@@ -7,8 +12,27 @@ a = Analysis(
     datas=[
         ('driver', 'driver'),
         ('img', 'img')
-    ],
-    hiddenimports=['PIL', 'PIL.Image', 'PIL.ImageFilter'],
+    ] + selenium_datas,
+    hiddenimports=[
+        'PIL', 'PIL.Image', 'PIL.ImageFilter',
+        'selenium',
+        'selenium.webdriver',
+        'selenium.webdriver.edge',
+        'selenium.webdriver.edge.webdriver',
+        'selenium.webdriver.edge.service',
+        'selenium.webdriver.edge.options',
+        'selenium.webdriver.chromium',
+        'selenium.webdriver.chromium.webdriver',
+        'selenium.webdriver.chromium.service',
+        'selenium.webdriver.chromium.options',
+        'selenium.webdriver.remote',
+        'selenium.webdriver.remote.webdriver',
+        'selenium.webdriver.common',
+        'selenium.webdriver.common.by',
+        'selenium.webdriver.common.keys',
+        'selenium.webdriver.common.service',
+        'selenium.webdriver.common.driver_finder',
+    ] + selenium_submodules,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

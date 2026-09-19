@@ -1,6 +1,7 @@
 import sys
 import os
 import io
+import re
 from datetime import datetime, date
 from typing import List, Dict, Any, Optional
 
@@ -45,7 +46,7 @@ class ScraperThread(QThread):
 
     def run(self):
         try:
-            self.log_signal.emit("Loading... [ 5% ]", 5)
+            self.log_signal.emit("Loading...", 5)
             self.cdp_mgr = EdgeCDPManager(port=None, headless=self.headless, edge_bin=self.edge_path)
             driver = self.cdp_mgr.start("https://www.eveportal.com/login")
             
@@ -570,8 +571,8 @@ class MainWindow(QMainWindow):
         self.apply_new_settings(self.config)
 
     def init_ui(self):
-        # 英文名称全面更新为 NoOvertime
-        self.setWindowTitle("NoOvertime")
+        # 界面窗口标题设为 不加了
+        self.setWindowTitle("不加了")
         self.resize(1220, 860)
         self.setMinimumSize(1000, 720)
         
@@ -843,7 +844,7 @@ class MainWindow(QMainWindow):
                 self.tray_icon.setIcon(QIcon(icon_path))
                 break
             
-        self.tray_icon.setToolTip("NoOvertime - 智能考勤与加班统计系统")
+        self.tray_icon.setToolTip("不加了")
 
         tray_menu = QMenu()
         act_show = QAction("显示主界面", self)
@@ -954,14 +955,14 @@ class MainWindow(QMainWindow):
             self.btn_awake_toggle.style().polish(self.btn_awake_toggle)
 
         if hasattr(self, 'tray_icon'):
-            self.tray_icon.setToolTip(f"NoOvertime - 智能考勤与加班统计系统\n☕ 状态: {status_text}")
+            self.tray_icon.setToolTip(f"不加了\n☕ 状态: {status_text}")
             self.update_tray_awake_actions()
 
     def on_awake_expired(self):
         """倒计时结束时轻量提示"""
         if hasattr(self, 'tray_icon'):
             self.tray_icon.showMessage(
-                "NoOvertime",
+                "不加了",
                 "屏幕防息屏倒计时已结束，系统已恢复正常电源休眠策略。",
                 QSystemTrayIcon.Information,
                 3000
@@ -974,7 +975,7 @@ class MainWindow(QMainWindow):
         """静默启动到托盘时给出气泡提示，避免用户误以为程序没启动"""
         if hasattr(self, 'tray_icon'):
             self.tray_icon.showMessage(
-                "NoOvertime",
+                "不加了",
                 "已在系统托盘静默启动，双击托盘图标可打开主界面。",
                 QSystemTrayIcon.Information,
                 2500
@@ -1247,7 +1248,7 @@ class MainWindow(QMainWindow):
         self.btn_start.setEnabled(False)
         self.btn_export.setEnabled(False)
         self.progress_bar.setValue(0)
-        self.lbl_status.setText("Loading... [ 0% ]")
+        self.lbl_status.setText("Loading...")
         self.lbl_status.setStyleSheet("font-weight: bold; color: #2563EB;")
 
         rules = {
@@ -1267,9 +1268,9 @@ class MainWindow(QMainWindow):
         self.worker_thread.start()
 
     def on_worker_progress(self, msg: str, pct: int):
-        if 0 < pct < 100:
-            display_text = f"{msg} [ {pct}% ]" if msg else f"Loading... [ {pct}% ]"
-            self.lbl_status.setText(display_text)
+        if 0 <= pct < 100:
+            # 统一显示 Loading...，不显示具体日期等读取细节
+            self.lbl_status.setText("Loading...")
             self.lbl_status.setStyleSheet("font-weight: bold; color: #2563EB;")
         else:
             self.lbl_status.setText(msg)
@@ -1537,7 +1538,7 @@ class MainWindow(QMainWindow):
             self.hide()
             if not self._tray_notified:
                 self.tray_icon.showMessage(
-                    "NoOvertime",
+                    "不加了",
                     "程序已最小化至系统托盘，双击托盘图标可重新打开。",
                     QSystemTrayIcon.Information,
                     2000

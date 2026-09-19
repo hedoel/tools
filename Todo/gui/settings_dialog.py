@@ -34,7 +34,7 @@ class SettingsDialog(QDialog):
         self.load_values()
 
     def init_ui(self):
-        self.setWindowTitle("首选项设置 - NoOvertime")
+        self.setWindowTitle("首选项设置 - 不加了")
         self.resize(620, 500)
         self.setMinimumSize(560, 420)
         
