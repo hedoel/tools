@@ -7,12 +7,14 @@
 
 ## 📦 版本发布与下载 (Releases)
 
-本项目提供 **安装版 (Installer)** 与 **免安装便携版 (Portable)** 两种发布版本：
+本项目同时提供 **Edge 152 专用版本** 与 **通用版本（内置 152/153 双驱动动态适配）**：
 
 | 版本类型 | 文件路径 | 适用场景 | 说明 |
 | :--- | :--- | :--- | :--- |
-| **🚀 安装版 (Install Version)** | [`release/NoOvertime_Setup_x64.exe`](release/NoOvertime_Setup_x64.exe) | 日常高频使用、托盘驻留、开机自启 | 推荐版本。具备安装向导，支持创建桌面/开始菜单快捷方式，卸载前自动检查并关闭运行中程序，支持“全新安装”彻底清空配置。 |
-| **💼 便携版 (Portable Version)** | [`release/NoOvertime_Portable_x64.zip`](release/NoOvertime_Portable_x64.zip) | 免安装、开箱即用、U盘随身携带 | 绿色免安装。解压后直接双击运行 `NoOvertime.exe` 即可使用，不向系统注册表写入信息。 |
+| **🚀 Edge 152 安装版 (推荐)** | [`release/NoOvertime_Setup_x64_Edge152.exe`](release/NoOvertime_Setup_x64_Edge152.exe) | 电脑 Edge 版本为 152.x，高频使用 | 专为 Edge 152.0.4191.53 优化构建，具备安装向导，桌面/托盘快捷方式，智能防多开。 |
+| **💼 Edge 152 便携版** | [`release/NoOvertime_Portable_x64_Edge152.zip`](release/NoOvertime_Portable_x64_Edge152.zip) | 电脑 Edge 版本为 152.x，免安装体验 | 绿色免安装，解压后双击 `NoOvertime.exe` 即可直接使用，不写注册表。 |
+| **🌟 通用安装版 (双驱动兼容)** | [`release/NoOvertime_Setup_x64.exe`](release/NoOvertime_Setup_x64.exe) | 自动适配 Edge 152 / 153 或自动更新 | 内置 152 + 153 动态驱动调度引擎，并支持未匹配时静默从微软官方源下载驱动。 |
+| **💼 通用便携版 (双驱动兼容)** | [`release/NoOvertime_Portable_x64.zip`](release/NoOvertime_Portable_x64.zip) | 跨设备免安装使用 | 解压即用，自动检测宿主机 Edge 版本并加载匹配驱动。 |
 
 ---
 

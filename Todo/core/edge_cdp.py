@@ -89,33 +89,68 @@ def clean_stale_profiles(prefix: str = "edge_hr_profile_", max_age_seconds: int 
         pass
 
 
-def get_driver_path() -> str:
-    """动态获取 msedgedriver.exe 路径，完美兼容 PyInstaller 打包前后"""
-    # 1. 如果是 PyInstaller 打包环境
+def get_edge_version(edge_bin: Optional[str] = None) -> Tuple[Optional[int], Optional[str]]:
+    """读取本地 Edge 的主版本与完整版本 (如 152, '152.0.4191.53')"""
+    if not edge_bin:
+        try:
+            edge_bin = find_edge_binary()
+        except Exception:
+            return None, None
+    if not edge_bin or not os.path.exists(edge_bin):
+        return None, None
+    try:
+        import win32api
+        info = win32api.GetFileVersionInfo(edge_bin, '\\')
+        ms = info['ProductVersionMS']
+        ls = info['ProductVersionLS']
+        major = ms >> 16
+        full = f"{major}.{ms & 0xFFFF}.{ls >> 16}.{ls & 0xFFFF}"
+        return major, full
+    except Exception:
+        pass
+    return None, None
+
+
+def get_driver_path(edge_bin: Optional[str] = None) -> str:
+    """动态智能获取与 Edge 匹配的 msedgedriver.exe 路径"""
+    major, _ = get_edge_version(edge_bin) if edge_bin else (None, None)
+
+    # 候选驱动文件名按优先级排列
+    filenames = []
+    if major:
+        filenames.append(f"msedgedriver_{major}.exe")
+    filenames.extend(["msedgedriver.exe", "msedgedriver_152.exe", "msedgedriver_153.exe"])
+
+    # 查找目录列表
+    search_dirs = []
+    # 优先检查用户 AppData 目录下的动态驱动缓存
+    appdata_dir = os.path.join(os.environ.get("APPDATA", ""), "NoOvertime", "driver")
+    if os.path.exists(appdata_dir):
+        search_dirs.append(appdata_dir)
+
     if getattr(sys, 'frozen', False):
         exe_dir = os.path.dirname(sys.executable)
-        p1 = os.path.join(exe_dir, "driver", "msedgedriver.exe")
-        if os.path.exists(p1):
-            return p1
-        p2 = os.path.join(exe_dir, "msedgedriver.exe")
-        if os.path.exists(p2):
-            return p2
-        p3 = os.path.join(exe_dir, "_internal", "driver", "msedgedriver.exe")
-        if os.path.exists(p3):
-            return p3
-        mei_dir = getattr(sys, '_MEIPASS', '')
-        p4 = os.path.join(mei_dir, "driver", "msedgedriver.exe")
-        if os.path.exists(p4):
-            return p4
-            
-    # 2. 源码开发环境
-    candidates = [
-        os.path.abspath("driver/msedgedriver.exe"),
-        os.path.join(os.path.dirname(os.path.dirname(__file__)), "driver", "msedgedriver.exe")
-    ]
-    for c in candidates:
-        if os.path.exists(c):
-            return c
+        search_dirs.extend([
+            os.path.join(exe_dir, "driver"),
+            exe_dir,
+            os.path.join(exe_dir, "_internal", "driver"),
+            os.path.join(getattr(sys, '_MEIPASS', ''), "driver")
+        ])
+    else:
+        search_dirs.extend([
+            os.path.abspath("driver"),
+            os.path.join(os.path.dirname(os.path.dirname(__file__)), "driver"),
+            os.getcwd()
+        ])
+
+    for fname in filenames:
+        for sdir in search_dirs:
+            if not sdir:
+                continue
+            cand = os.path.join(sdir, fname)
+            if os.path.exists(cand):
+                return cand
+
     return "msedgedriver.exe"
 
 
@@ -209,7 +244,8 @@ class EdgeCDPManager:
         options = Options()
         options.add_experimental_option("debuggerAddress", f"127.0.0.1:{self.port}")
         
-        driver_path = get_driver_path()
+        edge_major, edge_full_ver = get_edge_version(edge_bin)
+        driver_path = get_driver_path(edge_bin)
         service = Service(executable_path=driver_path)
         if sys.platform == "win32":
             service.creation_flags = subprocess.CREATE_NO_WINDOW
@@ -217,26 +253,64 @@ class EdgeCDPManager:
         try:
             self.driver = webdriver.Edge(service=service, options=options)
         except Exception as e:
-            # B5: 捕获驱动与 Edge 版本失配，尝试回退自动驱动或给出清晰易懂的中文指导
+            # 捕获驱动与 Edge 版本失配，尝试按备用驱动重试或动态下载
             err_str = str(e)
             fallback_success = False
-            if "version" in err_str.lower() or "session not created" in err_str.lower():
+            
+            # 备用候选驱动尝试 (例如 152 vs 153)
+            alt_candidates = []
+            if edge_major:
+                alt_name = f"msedgedriver_{edge_major}.exe"
+                for sdir in [os.path.dirname(driver_path), "driver"]:
+                    p = os.path.join(sdir, alt_name)
+                    if os.path.exists(p) and p != driver_path:
+                        alt_candidates.append(p)
+            for alt_p in alt_candidates:
                 try:
-                    # 尝试不指定路径回退使用 Selenium Manager 自动匹配
-                    fallback_service = Service()
+                    alt_service = Service(executable_path=alt_p)
                     if sys.platform == "win32":
-                        fallback_service.creation_flags = subprocess.CREATE_NO_WINDOW
-                    self.driver = webdriver.Edge(service=fallback_service, options=options)
+                        alt_service.creation_flags = subprocess.CREATE_NO_WINDOW
+                    self.driver = webdriver.Edge(service=alt_service, options=options)
                     fallback_success = True
+                    break
                 except Exception:
-                    fallback_success = False
+                    continue
+
+            if not fallback_success and ("version" in err_str.lower() or "session not created" in err_str.lower()):
+                # 尝试从微软官方新域名下载匹配版本
+                if edge_full_ver:
+                    try:
+                        down_url = f"https://msedgedriver.microsoft.com/{edge_full_ver}/edgedriver_win64.zip"
+                        appdata_driver = os.path.join(os.environ.get("APPDATA", ""), "NoOvertime", "driver")
+                        os.makedirs(appdata_driver, exist_ok=True)
+                        import urllib.request, zipfile, io
+                        with urllib.request.urlopen(down_url, timeout=12) as resp:
+                            if resp.status == 200:
+                                z = zipfile.ZipFile(io.BytesIO(resp.read()))
+                                target_name = f"msedgedriver_{edge_major}.exe" if edge_major else "msedgedriver.exe"
+                                target_path = os.path.join(appdata_driver, target_name)
+                                for info in z.infolist():
+                                    if info.filename.endswith("msedgedriver.exe"):
+                                        with z.open(info) as src, open(target_path, "wb") as dst:
+                                            dst.write(src.read())
+                                        break
+                                auto_service = Service(executable_path=target_path)
+                                if sys.platform == "win32":
+                                    auto_service.creation_flags = subprocess.CREATE_NO_WINDOW
+                                self.driver = webdriver.Edge(service=auto_service, options=options)
+                                fallback_success = True
+                    except Exception:
+                        fallback_success = False
 
             if not fallback_success:
                 if "version" in err_str.lower() or "session not created" in err_str.lower():
+                    edge_desc = f"（当前电脑 Edge 浏览器版本: {edge_full_ver or '未知'}）"
                     raise RuntimeError(
-                        f"Edge 浏览器版本与随包驱动不匹配！\n"
-                        f"错误详情: {err_str}\n"
-                        f"解决建议: 您的 Edge 浏览器近期可能已自动升级，请下载与当前 Edge 版本匹配的 msedgedriver.exe 覆盖至 driver 目录。"
+                        f"Edge 浏览器版本与随包驱动不匹配 {edge_desc}！\n"
+                        f"错误详情: {err_str}\n\n"
+                        f"快速解决指引：\n"
+                        f"1. 打开 Edge 浏览器，访问 edge://settings/help 自动升级至最新版本；或\n"
+                        f"2. 下载匹配当前 Edge 版本的 msedgedriver.exe 覆盖至软件 driver 目录。"
                     ) from e
                 raise
 
