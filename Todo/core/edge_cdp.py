@@ -283,8 +283,10 @@ class EdgeCDPManager:
                         down_url = f"https://msedgedriver.microsoft.com/{edge_full_ver}/edgedriver_win64.zip"
                         appdata_driver = os.path.join(os.environ.get("APPDATA", ""), "NoOvertime", "driver")
                         os.makedirs(appdata_driver, exist_ok=True)
-                        import urllib.request, zipfile, io
-                        with urllib.request.urlopen(down_url, timeout=12) as resp:
+                        import urllib.request, zipfile, io, ssl
+                        req = urllib.request.Request(down_url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+                        ctx = ssl._create_unverified_context()
+                        with urllib.request.urlopen(req, timeout=15, context=ctx) as resp:
                             if resp.status == 200:
                                 z = zipfile.ZipFile(io.BytesIO(resp.read()))
                                 target_name = f"msedgedriver_{edge_major}.exe" if edge_major else "msedgedriver.exe"
