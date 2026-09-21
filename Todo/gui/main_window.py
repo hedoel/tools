@@ -47,7 +47,12 @@ class ScraperThread(QThread):
     def run(self):
         try:
             self.log_signal.emit("Loading...", 5)
-            self.cdp_mgr = EdgeCDPManager(port=None, headless=self.headless, edge_bin=self.edge_path)
+            self.cdp_mgr = EdgeCDPManager(
+                port=None,
+                headless=self.headless,
+                edge_bin=self.edge_path,
+                progress_callback=lambda msg, pct: self.log_signal.emit(msg, pct)
+            )
             driver = self.cdp_mgr.start("https://www.eveportal.com/login")
             
             scraper = AttendanceScraper(
@@ -1268,6 +1273,12 @@ class MainWindow(QMainWindow):
         self.worker_thread.start()
 
     def on_worker_progress(self, msg: str, pct: int):
+        if any(k in msg for k in ["驱动", "WebDriver", "下载", "配置"]):
+            self.lbl_status.setText(msg)
+            self.lbl_status.setStyleSheet("font-weight: bold; color: #0284C7;")
+            self.progress_bar.setValue(pct)
+            return
+
         if 0 <= pct < 100:
             # 统一显示 Loading...，不显示具体日期等读取细节
             self.lbl_status.setText("Loading...")

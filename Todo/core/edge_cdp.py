@@ -7,7 +7,7 @@ import socket
 import subprocess
 import tempfile
 import urllib.request
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Callable
 from selenium import webdriver
 from selenium.webdriver.edge.service import Service
 from selenium.webdriver.edge.options import Options
@@ -158,7 +158,14 @@ DRIVER_PATH = get_driver_path()
 
 
 class EdgeCDPManager:
-    def __init__(self, port: Optional[int] = None, headless: bool = True, edge_bin: Optional[str] = None):
+    def __init__(
+        self,
+        port: Optional[int] = None,
+        headless: bool = True,
+        edge_bin: Optional[str] = None,
+        progress_callback: Optional[Callable[[str, int], None]] = None
+    ):
+        self.progress = progress_callback or (lambda msg, pct: None)
         # B2: 若未指定固定端口，则自动分配空闲端口，避免与用户本地开发环境冲突
         if port is None or port <= 0:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -286,9 +293,30 @@ class EdgeCDPManager:
                         import urllib.request, zipfile, io, ssl
                         req = urllib.request.Request(down_url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
                         ctx = ssl._create_unverified_context()
-                        with urllib.request.urlopen(req, timeout=15, context=ctx) as resp:
+                        self.progress(f"正在准备下载 Edge {edge_major} 驱动...", 0)
+                        with urllib.request.urlopen(req, timeout=20, context=ctx) as resp:
                             if resp.status == 200:
-                                z = zipfile.ZipFile(io.BytesIO(resp.read()))
+                                total_size = resp.getheader("Content-Length")
+                                total_bytes = int(total_size) if total_size and total_size.isdigit() else 0
+                                downloaded = 0
+                                chunk_size = 128 * 1024  # 128KB 块
+                                buffer = io.BytesIO()
+                                while True:
+                                    chunk = resp.read(chunk_size)
+                                    if not chunk:
+                                        break
+                                    buffer.write(chunk)
+                                    downloaded += len(chunk)
+                                    if total_bytes > 0:
+                                        pct = min(99, int((downloaded / total_bytes) * 100))
+                                        mb_curr = downloaded / (1024 * 1024)
+                                        mb_total = total_bytes / (1024 * 1024)
+                                        self.progress(f"正在下载 Edge {edge_major} 驱动 ({mb_curr:.1f}MB/{mb_total:.1f}MB)...", pct)
+                                    else:
+                                        self.progress(f"正在下载 Edge {edge_major} 驱动...", 50)
+
+                                self.progress(f"正在配置 Edge {edge_major} 驱动...", 100)
+                                z = zipfile.ZipFile(buffer)
                                 target_name = f"msedgedriver_{edge_major}.exe" if edge_major else "msedgedriver.exe"
                                 target_path = os.path.join(appdata_driver, target_name)
                                 for info in z.infolist():
