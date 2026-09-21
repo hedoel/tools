@@ -1364,7 +1364,7 @@ class MainWindow(QMainWindow):
             ot = float(r.get("overtime_hours", 0.0))
             detail_type = r.get("detail_type", "正常工时")
 
-            if detail_type == "周内加班":
+            if detail_type in ["周内加班", "工作日加班"]:
                 weekday_ot += ot
                 total_ot += ot
             elif detail_type == "周末加班":
@@ -1396,7 +1396,7 @@ class MainWindow(QMainWindow):
             if ot > 0:
                 font = QFont("JetBrains Mono", 10, QFont.Bold)
                 items[5].setFont(font)
-                if detail_type == "周内加班":
+                if detail_type in ["周内加班", "工作日加班"]:
                     items[5].setForeground(QColor("#16A34A" if not is_dark else "#4ADE80"))
                 elif detail_type == "周末加班":
                     items[5].setForeground(QColor("#D97706" if not is_dark else "#FBBF24"))

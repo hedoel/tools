@@ -100,7 +100,7 @@ def export_overtime_to_excel(
             row_fill = fill_holiday
         elif ot_hours > 0:
             row_fill = fill_overtime
-        elif r.get("is_weekend", False):
+        elif r.get("is_weekend", False) and not r.get("is_substitute_workday", False):
             row_fill = fill_weekend
             
         for col_idx, val in enumerate(row_vals, start=1):

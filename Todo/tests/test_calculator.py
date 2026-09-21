@@ -119,8 +119,38 @@ class TestWeekendAndHoliday:
         assert r["overtime_hours"] == 0.0
         assert r["detail_type"] == "法定节假日"
 
+    def test_statutory_substitute_workday_no_overtime(self):
+        # 2026-09-20 (周日) 为国家法定中秋调休上班日，算正常工作日，08:30-17:30为正常出勤
+        # 17:33下班在18:00前，无加班，记0.0h
+        sunday_sub = date(2026, 9, 20)
+        r = calculate_daily_overtime(sunday_sub, SHIFT_DAY, "08:08", "17:33")
+        assert r["overtime_hours"] == 0.0
+        assert r["detail_type"] == "正常工时"
+        assert r["is_substitute_workday"] is True
+        assert "18:00前下班，无加班" in r["notes"]
+
+    def test_statutory_substitute_workday_with_evening_overtime(self):
+        # 调休上班日 18:00 后延时加班与平时工作日一致
+        sunday_sub = date(2026, 9, 20)
+        r = calculate_daily_overtime(sunday_sub, SHIFT_DAY, "08:08", "21:00")
+        assert r["overtime_hours"] == 3.0
+        assert r["detail_type"] == "周内加班"
+        assert r["is_substitute_workday"] is True
+        assert "延时加班 180分钟，计 3.0小时" in r["notes"]
+
+    def test_explicit_substitute_flag_or_shift_name(self):
+        # 班次包含“调休”字样或显式指定 is_substitute_workday=True
+        custom_sunday = date(2026, 11, 15)  # 普通周日
+        r1 = calculate_daily_overtime(custom_sunday, "SD3-调休白班 (08:30-17:30)", "08:15", "17:35")
+        assert r1["overtime_hours"] == 0.0
+        assert r1["is_substitute_workday"] is True
+        
+        r2 = calculate_daily_overtime(custom_sunday, SHIFT_DAY, "08:15", "17:35", is_substitute_workday=True)
+        assert r2["overtime_hours"] == 0.0
+        assert r2["is_substitute_workday"] is True
+
     def test_weekend_base_plus_evening_overtime(self):
-        # 基础工时 8.0 + 18:00 后 2.0
+        # 基础工时 8.0 + 18:00 后 2.0 (普通非调休周末)
         assert ot(SATURDAY, "08:20", "20:00") == 10.0
 
     def test_weekend_base_disabled(self):

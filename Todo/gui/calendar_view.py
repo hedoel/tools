@@ -47,6 +47,7 @@ class DayCellWidget(QFrame):
         detail_type = self.day_data.get("detail_type", "")
         is_holiday = detail_type == "法定节假日"
         is_weekend = self.day_data.get("is_weekend", False)
+        is_substitute = self.day_data.get("is_substitute_workday", False)
         shift = self.day_data.get("shift_name", "")
         cin = self.day_data.get("check_in", "-")
         cout = self.day_data.get("check_out", "-")
@@ -94,9 +95,9 @@ class DayCellWidget(QFrame):
         lbl_day = QLabel(f"{self.day_num:02d}")
         lbl_day.setFont(QFont("JetBrains Mono", 11, QFont.Bold))
         if self.is_dark:
-            day_color = "color: #F8FAFC;" if not is_weekend else "color: #94A3B8;"
+            day_color = "color: #F8FAFC;" if (not is_weekend or is_substitute) else "color: #94A3B8;"
         else:
-            day_color = "color: #0F172A;" if not is_weekend else "color: #64748B;"
+            day_color = "color: #0F172A;" if (not is_weekend or is_substitute) else "color: #64748B;"
         lbl_day.setStyleSheet(day_color)
         top_box.addWidget(lbl_day)
 
@@ -104,6 +105,11 @@ class DayCellWidget(QFrame):
             tag_hol = QLabel("节")
             tag_hol.setStyleSheet("background-color: #EF4444; color: #FFFFFF; border-radius: 3px; font-size: 9px; font-weight: bold; padding: 1px 3px;")
             top_box.addWidget(tag_hol)
+        elif is_substitute:
+            tag_sub = QLabel("班")
+            tag_sub_style = "background-color: #1E3A8A; color: #93C5FD;" if self.is_dark else "background-color: #DBEAFE; color: #1D4ED8;"
+            tag_sub.setStyleSheet(f"{tag_sub_style} border-radius: 3px; font-size: 9px; font-weight: bold; padding: 1px 3px;")
+            top_box.addWidget(tag_sub)
         elif is_weekend:
             tag_wk = QLabel("休" if detail_type == "公休" else "末")
             tag_wk_style = "background-color: #334155; color: #CBD5E1;" if self.is_dark else "background-color: #E2E8F0; color: #475569;"

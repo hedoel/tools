@@ -10,6 +10,30 @@ WORK_AFTERNOON_END = time(17, 30)
 # 加班最晚计算到次日 02:00，超出部分不再累计
 DEFAULT_OT_LATEST_END = "02:00"
 
+# 国家法定调休上班日（周末调休补班，按正常工作日计算出勤与加班）
+# 涵盖中国国务院公布的法定节假日调休补班安排（2024~2027）
+STATUTORY_SUBSTITUTE_WORKDAYS = {
+    # 2024年
+    date(2024, 2, 4), date(2024, 2, 18), date(2024, 4, 7),
+    date(2024, 4, 28), date(2024, 5, 11), date(2024, 9, 14),
+    date(2024, 9, 29), date(2024, 10, 12),
+    # 2025年
+    date(2025, 1, 26), date(2025, 2, 8), date(2025, 4, 27),
+    date(2025, 9, 28), date(2025, 10, 11),
+    # 2026年
+    date(2026, 2, 14), date(2026, 2, 28), date(2026, 4, 26),
+    date(2026, 5, 9), date(2026, 9, 20), date(2026, 10, 10),
+    # 2027年
+    date(2027, 2, 6), date(2027, 2, 20), date(2027, 4, 25),
+    date(2027, 5, 8), date(2027, 9, 18), date(2027, 9, 26),
+    date(2027, 10, 9),
+}
+
+
+def is_statutory_substitute_workday(d: date) -> bool:
+    """判断指定日期是否为国家法定节假日调休上班日（周末调休补班）"""
+    return d in STATUTORY_SUBSTITUTE_WORKDAYS
+
 
 def parse_time_str(date_ref: date, t_str: str) -> Optional[datetime]:
     """
@@ -164,7 +188,8 @@ def calculate_daily_overtime(
     ot_valid_hours: Optional[float] = None,
     is_statutory_holiday: bool = False,
     ot_latest_end: str = DEFAULT_OT_LATEST_END,
-    include_weekend_base: bool = True
+    include_weekend_base: bool = True,
+    is_substitute_workday: Optional[bool] = None
 ) -> Dict[str, Any]:
     """
     计算单日加班时长
@@ -178,10 +203,11 @@ def calculate_daily_overtime(
 
     规则优先级:
     1. 法定节假日 (日历带“节”角标): 有效加班时长不计入该月加班 (0.0 小时)
-    2. 周末且存在审批加班单: 以审批的“有效加班时长”为准
-    3. 公休班次且无有效加班单: 不计入加班时长 (0 小时)
-    4. 周一至周五: 按上述口径计算 18:00 之后的延时加班
-    5. 周末非公休: 标准班次内有效工时 + 18:00 后延时加班 (注明打卡兜底)
+    2. 法定调休上班日 (周末调休补班): 调休天和正常工作日一样，标准班次内正常出勤不计加班，仅计 18:00 后延时加班
+    3. 普通周末且存在审批加班单: 以审批的“有效加班时长”为准
+    4. 公休班次且无有效加班单: 不计入加班时长 (0 小时)
+    5. 工作日与调休上班日: 按口径计算 18:00 之后的延时加班
+    6. 普通周末非公休: 标准班次内有效工时 + 18:00 后延时加班 (注明打卡兜底)
     """
     weekday = record_date.weekday()  # 0: Monday ... 4: Friday, 5: Saturday, 6: Sunday
     is_weekend = (weekday in [5, 6])
@@ -190,6 +216,12 @@ def calculate_daily_overtime(
     
     is_public_holiday_shift = "公休" in (shift_name or "")
     
+    # 判断是否为法定调休上班日（周末调休补班）
+    if is_substitute_workday is None:
+        is_substitute = is_statutory_substitute_workday(record_date) or ("调休" in (shift_name or ""))
+    else:
+        is_substitute = bool(is_substitute_workday)
+
     check_in_dt = parse_time_str(record_date, check_in_str)
     check_out_dt = normalize_check_out(record_date, check_in_dt, parse_time_str(record_date, check_out_str))
     
@@ -197,6 +229,7 @@ def calculate_daily_overtime(
         "date": record_date.strftime("%Y-%m-%d"),
         "weekday": weekday_name,
         "is_weekend": is_weekend,
+        "is_substitute_workday": is_substitute,
         "shift_name": shift_name or "未排班",
         "check_in": check_in_str or "-",
         "check_out": check_out_str or "-",
@@ -217,8 +250,8 @@ def calculate_daily_overtime(
             result["notes"] = "法定节假日（节），不计入该月加班"
         return result
     
-    # 规则 2: 普通周末加班单优先 (只要加班单中有核定的有效加班时长)
-    if is_weekend and ot_valid_hours is not None:
+    # 规则 2: 普通周末加班单优先 (只要加班单中有核定的有效加班时长，且非法定调休正常工作日)
+    if is_weekend and not is_substitute and ot_valid_hours is not None:
         result["overtime_hours"] = float(ot_valid_hours)
         if ot_valid_hours > 0:
             result["detail_type"] = "周末加班"
@@ -254,18 +287,19 @@ def calculate_daily_overtime(
         if dropped_minutes > 0 else ""
     )
     
-    # 规则 4: 周内加班 (周一至周五)
-    if not is_weekend:
+    # 规则 4: 工作日与法定调休上班日（“调休天和正常上班一样”）
+    if (not is_weekend) or is_substitute:
+        prefix = "法定调休上班，" if is_substitute else ""
         if ot_hours > 0:
             result["overtime_hours"] = ot_hours
             result["detail_type"] = "周内加班"
-            result["notes"] = f"{weekday_ot_start}后延时加班 {ot_minutes}分钟，计 {ot_hours}小时{cross_day_note}{cutoff_note}"
+            result["notes"] = f"{prefix}{weekday_ot_start}后延时加班 {ot_minutes}分钟，计 {ot_hours}小时{cross_day_note}{cutoff_note}"
         elif ot_minutes > 0:
-            result["notes"] = f"{weekday_ot_start}后仅 {ot_minutes}分钟 (未满{min_ot_minutes}分钟起算线，不计){cross_day_note}{cutoff_note}"
+            result["notes"] = f"{prefix}{weekday_ot_start}后仅 {ot_minutes}分钟 (未满{min_ot_minutes}分钟起算线，不计){cross_day_note}{cutoff_note}"
         else:
-            result["notes"] = f"{weekday_ot_start}前下班，无加班"
+            result["notes"] = f"{prefix}{weekday_ot_start}前下班，无加班"
             
-    # 规则 5: 周末加班 (周六/周日且非公休)
+    # 规则 5: 普通周末加班 (周六/周日且非调休且非公休)
     else:
         if include_weekend_base:
             # 标准班次内有效出勤工时 (已排除 12:00-13:00 午休)
