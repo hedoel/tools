@@ -7,10 +7,9 @@ selenium_datas = collect_data_files('selenium')
 
 a = Analysis(
     ['main.py'],
-    pathex=[],
+    pathex=['src'],
     binaries=[],
     datas=[
-        ('driver', 'driver'),
         ('img', 'img')
     ] + selenium_datas,
     hiddenimports=[

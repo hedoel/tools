@@ -1,6 +1,14 @@
 import os
+import sys
 import unittest
 from unittest.mock import patch, MagicMock
+
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SRC_DIR = os.path.join(ROOT_DIR, "src")
+for p in [SRC_DIR, ROOT_DIR]:
+    if p not in sys.path:
+        sys.path.insert(0, p)
+
 from core.edge_cdp import get_driver_path, get_edge_version, EdgeCDPManager
 
 class TestEdgeCDP(unittest.TestCase):

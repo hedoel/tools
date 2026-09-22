@@ -9,7 +9,11 @@ import os
 import sys
 from datetime import date
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SRC_DIR = os.path.join(ROOT_DIR, "src")
+for p in [SRC_DIR, ROOT_DIR]:
+    if p not in sys.path:
+        sys.path.insert(0, p)
 
 from core.calculator import (  # noqa: E402
     calculate_daily_overtime,
@@ -113,53 +117,50 @@ class TestWeekendAndHoliday:
         assert r["overtime_hours"] == 0.0
 
     def test_statutory_holiday_excluded(self):
+        # 5.1 法定节假日（带“节”角标），即便审批单有有效时长也不计入该月常规加班
         r = calculate_daily_overtime(
-            date(2026, 10, 1), SHIFT_DAY, "08:12", "20:33", is_statutory_holiday=True
+            date(2026, 5, 1), "SD3-职员公休白班 (08:30-17:30)", "08:12", "20:33",
+            ot_valid_hours=10.5, is_statutory_holiday=True
         )
         assert r["overtime_hours"] == 0.0
         assert r["detail_type"] == "法定节假日"
+        assert "不计入该月加班" in r["notes"]
 
-    def test_statutory_substitute_workday_no_overtime(self):
-        # 2026-09-20 (周日) 为国家法定中秋调休上班日，算正常工作日，08:30-17:30为正常出勤
-        # 17:33下班在18:00前，无加班，记0.0h
-        sunday_sub = date(2026, 9, 20)
-        r = calculate_daily_overtime(sunday_sub, SHIFT_DAY, "08:08", "17:33")
+    def test_makeup_workday_sept20_off_before_six(self):
+        # 9.20 周日调休正常上班，时段1有打卡且18:00前下班，不计入加班（0.0h，修补原误算8.0h的Bug）
+        r = calculate_daily_overtime(
+            date(2026, 9, 20), SHIFT_DAY, "08:08", "17:33",
+            has_slot1_punch=True
+        )
         assert r["overtime_hours"] == 0.0
         assert r["detail_type"] == "正常工时"
-        assert r["is_substitute_workday"] is True
         assert "18:00前下班，无加班" in r["notes"]
 
-    def test_statutory_substitute_workday_with_evening_overtime(self):
-        # 调休上班日 18:00 后延时加班与平时工作日一致
-        sunday_sub = date(2026, 9, 20)
-        r = calculate_daily_overtime(sunday_sub, SHIFT_DAY, "08:08", "21:00")
-        assert r["overtime_hours"] == 3.0
+    def test_makeup_workday_may09_overtime_after_six(self):
+        # 5.9 周六调休正常上班，时段1打卡08:10-20:31，无有效加班时长，按18:00后计2.5h延时加班
+        r = calculate_daily_overtime(
+            date(2026, 5, 9), SHIFT_DAY, "08:10", "20:31",
+            has_slot1_punch=True
+        )
+        assert r["overtime_hours"] == 2.5
         assert r["detail_type"] == "周内加班"
-        assert r["is_substitute_workday"] is True
-        assert "延时加班 180分钟，计 3.0小时" in r["notes"]
+        assert "18:00后延时加班 151分钟，计 2.5小时" in r["notes"]
 
-    def test_explicit_substitute_flag_or_shift_name(self):
-        # 班次包含“调休”字样或显式指定 is_substitute_workday=True
-        custom_sunday = date(2026, 11, 15)  # 普通周日
-        r1 = calculate_daily_overtime(custom_sunday, "SD3-调休白班 (08:30-17:30)", "08:15", "17:35")
-        assert r1["overtime_hours"] == 0.0
-        assert r1["is_substitute_workday"] is True
-        
-        r2 = calculate_daily_overtime(custom_sunday, SHIFT_DAY, "08:15", "17:35", is_substitute_workday=True)
-        assert r2["overtime_hours"] == 0.0
-        assert r2["is_substitute_workday"] is True
+    def test_weekend_rest_day_may17_with_approved_hours(self):
+        # 5.17 周日公休，时段1无考勤打卡，但加班信息有有效加班时长4.5h
+        r = calculate_daily_overtime(
+            date(2026, 5, 17), "SD3-职员公休白班 (08:30-17:30)", "12:52", "17:36",
+            ot_valid_hours=4.5, has_slot1_punch=False
+        )
+        assert r["overtime_hours"] == 4.5
+        assert r["detail_type"] == "周末加班"
+        assert "周末有效加班时长: 4.5小时" in r["notes"]
 
-    def test_weekend_base_plus_evening_overtime(self):
-        # 基础工时 8.0 + 18:00 后 2.0 (普通非调休周末)
-        assert ot(SATURDAY, "08:20", "20:00") == 10.0
-
-    def test_weekend_base_disabled(self):
-        # 关闭未见审批单的周末打卡兜底，无加班单时记为 0.0h
-        assert ot(SATURDAY, "08:20", "20:00", include_weekend_base=False) == 0.0
-
-    def test_weekend_cross_day_capped(self):
-        # 基础工时 8.0 + 18:00~次日 02:00 的 8.0，凌晨 03:00 部分被截断
-        assert ot(SATURDAY, "08:20", "03:00") == 16.0
+    def test_weekend_rest_day_unpunched_fallback(self):
+        # 周末非正常班次（时段1未打卡）且无审批单时，按兜底规则计算基础工时+延时
+        assert ot(SATURDAY, "08:20", "20:00", has_slot1_punch=False, include_weekend_base=True) == 10.0
+        assert ot(SATURDAY, "08:20", "20:00", has_slot1_punch=False, include_weekend_base=False) == 0.0
+        assert ot(SATURDAY, "08:20", "03:00", has_slot1_punch=False, include_weekend_base=True) == 16.0
 
 
 class TestTimeParsing:

@@ -5,11 +5,18 @@ __pycache__/
 .venv/
 venv/
 
-# ---- PyInstaller 构建产物 ----
+# ---- PyInstaller 构建与打包产物 ----
+build/
+dist/
+release/
+*.spec.bak
+
+# ---- 测试与缓存 ----
+.pytest_cache/
 
 # ---- 运行期数据 / 日志 ----
 *.log
-script/logs/
+scripts/logs/
 scratch/
 
 # ---- 用户配置（含 DPAPI 密码密文，绝不能提交）----

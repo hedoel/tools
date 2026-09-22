@@ -1,8 +1,12 @@
 import sys
 import os
 
-# 确保项目根目录在 sys.path 中
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# 确保项目根目录与 src 源码目录均在 sys.path 中
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+SRC_DIR = os.path.join(PROJECT_ROOT, "src")
+for p in [SRC_DIR, PROJECT_ROOT]:
+    if p not in sys.path:
+        sys.path.insert(0, p)
 
 from PyQt5.QtWidgets import QApplication, QSystemTrayIcon
 from PyQt5.QtCore import Qt
