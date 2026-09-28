@@ -354,9 +354,9 @@ class AttendanceScraper:
                 const shift = classEl ? classEl.innerText.trim() : '白班';
                 const clockEl = c.querySelector('.date-cell-clock');
                 const clockItems = clockEl ? clockEl.querySelectorAll('.date-cell-clock-item') : [];
-                // 检测单元格内是否有加班申请相关的标识（图标/文字）
+                // 检测单元格内是否有加班申请相关的标识（图标/文字），排除对 .date-cell-bottom 等无关类的误匹配
                 const cellText = c.innerText || '';
-                const hasOtBadge = cellText.includes('加班') || !!c.querySelector('.date-cell-overtime, .overtime-icon, [class*="overtime"], [class*="apply"], [class*="ot"]');
+                const hasOtBadge = cellText.includes('加班') || !!c.querySelector('.date-cell-overtime, .overtime-icon, [class*="overtime"], [class*="apply"]');
                 return {{
                     hasClock: clockItems.length > 0,
                     hasOtBadge: hasOtBadge,
@@ -385,19 +385,44 @@ class AttendanceScraper:
             if need_drawer:
                 drawer_success = False
                 try:
-                    # 滚动并点击日期单元格中的打卡项或加班标识
+                    # 确保前一日抽屉完全关闭且 DOM 动画结束，避免点击被遮挡
+                    self.driver.execute_script("const c = document.querySelector('.er-dialog-close'); if (c) c.click();")
+                    t_pre = time.time()
+                    while time.time() - t_pre < 0.6:
+                        is_closed = self.driver.execute_script("""
+                            const warp = document.querySelector('.er-dialog-warp');
+                            if (!warp) return true;
+                            const s = window.getComputedStyle(warp);
+                            return s.display === 'none' || s.visibility === 'hidden' || warp.offsetWidth === 0;
+                        """)
+                        if is_closed:
+                            break
+                        time.sleep(0.05)
+                    time.sleep(0.1)
+
+                    # 滚动并点击日期单元格中的打卡项或加班标识（同时派发 MouseEvent 与 click）
                     self.driver.execute_script(f"""
                         const c = document.querySelector("div[customattribute*='\\"prop\\":\\"{target_date_str}\\"']");
                         if (c) {{
                             c.scrollIntoView({{block: 'center', inline: 'center'}});
                             const target = c.querySelector('.date-cell-clock-item, .date-cell-overtime, .overtime-icon, [class*="overtime"]') || c.querySelector('.date-cell-clock-item') || c;
-                            target.click();
+                            if (target) {{
+                                target.dispatchEvent(new MouseEvent('click', {{bubbles: true, cancelable: true, view: window}}));
+                                target.click();
+                            }}
                         }}
                     """)
-                    
-                    # 严密等待抽屉加载遮罩消失且日期完全同步对齐（针对加载缓慢的详情页等待至多 10 秒）
+
+                    target_dash = f"{year:04d}-{month:02d}-{day_str}"
+                    target_slash = f"{year:04d}/{month:02d}/{day_str}"
+                    target_short_slash = f"{month:02d}/{day_str}"
+                    target_short_dash = f"{month:02d}-{day_str}"
+                    date_tokens = [target_slash, target_dash, target_short_slash, target_short_dash]
+
+                    # 严密等待抽屉加载遮罩消失且日期完全同步对齐（支持缓慢详情页等待至多 15 秒，含 1.5s 补刀重试）
                     t0 = time.time()
-                    while time.time() - t0 < 10.0:
+                    last_click_t = t0
+                    while time.time() - t0 < 15.0:
                         res = self.driver.execute_script("""
                             const warp = document.querySelector('.er-dialog-warp');
                             if (!warp) return {ready: false};
@@ -493,7 +518,13 @@ class AttendanceScraper:
                                 otOut: otOut
                             };
                         """)
-                        if res and res.get('ready') and (target_slash in res.get('foundDate', '') or target_slash in res.get('title', '')):
+                        date_matched = False
+                        if res and res.get('ready'):
+                            fd = res.get('foundDate', '')
+                            tt = res.get('title', '')
+                            date_matched = any(tok in fd or tok in tt for tok in date_tokens)
+
+                        if date_matched:
                             if res.get('shift'):
                                 shift_name = res['shift']
                             check_in_str = res.get('checkIn', '-')
@@ -504,6 +535,21 @@ class AttendanceScraper:
                             ot_check_out = res.get('otOut')
                             drawer_success = True
                             break
+
+                        # 若已等待超过 1.5 秒且抽屉未就绪/未同步，自动重发点击事件防吞
+                        if time.time() - last_click_t >= 1.5:
+                            self.driver.execute_script(f"""
+                                const c = document.querySelector("div[customattribute*='\\"prop\\":\\"{target_date_str}\\"']");
+                                if (c) {{
+                                    const target = c.querySelector('.date-cell-clock-item, .date-cell-overtime, .overtime-icon, [class*="overtime"]') || c.querySelector('.date-cell-clock-item') || c;
+                                    if (target) {{
+                                        target.dispatchEvent(new MouseEvent('click', {{bubbles: true, cancelable: true, view: window}}));
+                                        target.click();
+                                    }}
+                                }}
+                            """)
+                            last_click_t = time.time()
+
                         time.sleep(0.1)
                         
                     if not drawer_success:
@@ -513,9 +559,20 @@ class AttendanceScraper:
                     # 点击日历格读取数据后，停留两秒再关闭抽屉并进入下一天
                     time.sleep(2.0)
 
-                    # 采集完当前日期后立即关闭抽屉，保持界面干净且不遮挡后续单元格
+                    # 采集完当前日期后关闭抽屉，并确认 DOM 动画彻底关闭
                     self.driver.execute_script("const c = document.querySelector('.er-dialog-close'); if (c) c.click();")
-                    time.sleep(0.3)
+                    t_close = time.time()
+                    while time.time() - t_close < 0.8:
+                        is_closed = self.driver.execute_script("""
+                            const warp = document.querySelector('.er-dialog-warp');
+                            if (!warp) return true;
+                            const s = window.getComputedStyle(warp);
+                            return s.display === 'none' || s.visibility === 'hidden' || warp.offsetWidth === 0;
+                        """)
+                        if is_closed:
+                            break
+                        time.sleep(0.05)
+                    time.sleep(0.15)
                 except Exception as ex:
                     failed_days.append(target_date_str)
                     print(f"读取 {target_date_str} 详情异常: {ex}")
