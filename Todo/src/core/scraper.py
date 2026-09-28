@@ -395,9 +395,9 @@ class AttendanceScraper:
                         }}
                     """)
                     
-                    # 严密等待抽屉加载遮罩消失且日期完全同步对齐
+                    # 严密等待抽屉加载遮罩消失且日期完全同步对齐（针对加载缓慢的详情页等待至多 10 秒）
                     t0 = time.time()
-                    while time.time() - t0 < 6.0:
+                    while time.time() - t0 < 10.0:
                         res = self.driver.execute_script("""
                             const warp = document.querySelector('.er-dialog-warp');
                             if (!warp) return {ready: false};
